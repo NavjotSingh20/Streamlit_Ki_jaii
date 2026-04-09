@@ -352,8 +352,8 @@ if "calib_data" not in st.session_state:
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def detect_stationary(X):
-    acc = X[:, :3]
-    gyr = X[:, 3:6]
+    acc = X[:, :3].astype(np.float32)
+    gyr = X[:, 3:6].astype(np.float32)
     acc_mag = np.linalg.norm(acc, axis=1)
     gyr_mag = np.linalg.norm(gyr, axis=1)
     thresh = st.session_state.calib_data
@@ -361,7 +361,7 @@ def detect_stationary(X):
 
 
 def motion_intensity(X):
-    acc = X[:, :3]
+    acc = X[:, :3].astype(np.float32)
     return np.mean(np.linalg.norm(acc, axis=1))
 
 
@@ -519,13 +519,23 @@ while st.session_state.running:
         time.sleep(0.1)
         continue
 
-    st.session_state.buffer.append([acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z])
+    # Sanitize: skip frame if any value is None or non-finite
+    frame = [acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z]
+    try:
+        frame = [float(v) for v in frame]
+        if not all(np.isfinite(frame)):
+            raise ValueError("Non-finite sensor value")
+    except (TypeError, ValueError):
+        time.sleep(0.02)
+        continue
+
+    st.session_state.buffer.append(frame)
     if len(st.session_state.buffer) > BUFFER_SIZE:
         st.session_state.buffer.pop(0)
 
     # ── CALIBRATION ──────────────────────────────────────────────────────
     if st.session_state.calibrating:
-        st.session_state.calib_buffer.append([acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z])
+        st.session_state.calib_buffer.append(frame)
         pct = min(int(len(st.session_state.calib_buffer) / 100 * 100), 100)
 
         with placeholder.container():
@@ -576,7 +586,7 @@ while st.session_state.running:
         time.sleep(0.02)
         continue
 
-    X_raw = np.array(st.session_state.buffer)
+    X_raw = np.array(st.session_state.buffer, dtype=np.float32)
     X_pad = np.pad(X_raw, ((0, 0), (0, 3)))
 
     intensity = motion_intensity(X_raw)
